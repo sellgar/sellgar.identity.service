@@ -23,7 +23,7 @@
 
 Из `code/`: `node .yarn/releases/yarn-4.18.0.cjs test --runInBand` и
 `node .yarn/releases/yarn-4.18.0.cjs build:identity_srv`.
-Production image проверяется `.github/scripts/smoke-image.py`.
+Docker target `tests` запускается отдельной блокирующей job; после Helm-деплоя CI проверяет readiness и digest.
 
 ## Владелец корзины и приватные сокеты
 
@@ -60,4 +60,10 @@ Issue/renew/active verify возвращают ownerUuid и expiresAt. Для с
 - `InitialIdentitySchema1718449000000` создаёт базовые user/person/session в пустой
   БД до прежних миграций; существующие три таблицы принимает без изменения данных.
   Неполная базовая схема блокирует миграцию. Автоматический откат baseline запрещён.
-- Migration Sync Job должен завершиться до старта новой реплики. Synchronize запрещён.
+- Миграционная Kubernetes Job должен завершиться до старта новой реплики. Synchronize запрещён.
+
+## Контракт CI/CD
+
+- Отдельный Docker target `tests` и job `test` обязательны; деплой зависит от успешных тестов.
+- Есть отдельный `migration` image и job `migrate`; test и migrate идут параллельно до deploy.
+- CI/CD и конфигурация описаны в разделе «CI и доставка» README. Python/smoke wrappers удалены; команды Helm/kubectl видны в общих workflows.

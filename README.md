@@ -51,28 +51,33 @@ node .yarn/releases/yarn-4.18.0.cjs start:identity_srv.prod
 `GET /health` на PORT (default 8080) проверяет базу и RMQ consumer. Отключение
 брокера/базы возвращает 503. Внешнего HTTP API/Ingress у сервиса нет.
 
-## CI и Kubernetes
+## CI и доставка
 
-Push в development/release/*: build image → isolated smoke → GHCR publish.
-Smoke применяет все шесть миграций на пустой базе, повторяет migration:run,
-проверяет guest issue/verify/fingerprint binding/renew/check/revoke через RMQ,
-non-root запуск с read-only filesystem и mounted `.env`, затем проверяет
-снятие readiness при отключении тестового RabbitMQ. Рабочие данные не используются.
+Push в `development` запускает build → publish → параллельно test/migrate → deploy.
+`test` — отдельная job с unit/компонентными тестами из Docker target `tests`.
+Если тесты или миграции не прошли, deploy не запускается.
+Сборка, тесты и публикация выполняются на GitHub-hosted runners;
+migrate/deploy — на repository-scoped runner в dev VM.
+Обычная раскатка выполняется Helm с ожиданием готовности и проверкой image digest.
+Argo CD продолжает управлять платформой, но не этим приложением.
 
-Release/* вливается в master; workflow Release to production запускается вручную
-с ID успешной release-сборки. Продвигается тот же digest, без пересборки; workflow
-готовит production manifest и back-merge PR master → development. Подключение этого
-manifest к prod Argo CD — отдельный этап; production сейчас не развёрнут.
+Docker targets: `application`, `tests`, `migration`.
+Миграционный образ запускает TypeORM CLI отдельной Kubernetes Job до раскатки приложения. В runtime приложения миграции автоматически не запускаются.
 
-ConfigMap `.env` монтируется в `/app/.env` при запуске. Секреты БД, брокера и
-Identity передаются из Kubernetes Secret через environment; в образе их нет.
-Отдельная база/владелец `identity_srv` создаются оператором CloudNativePG из
-infrastructure desired state. Перед Deployment запускается migration Sync Job;
-TypeORM synchronize не используется. Baseline создаёт отсутствовавшие в старом
-наборе миграций базовые таблицы, сохраняя уже существующие установки.
+Настройки среды хранятся в `helm/dev/values.yaml`, Secret refs — в
+`helm/values.app.yaml`. Версионный immutable ConfigMap монтируется через
+`environmentFile`; значения credentials не передаются в GitHub-hosted jobs или Git.
+Внутренний HTTP-порт — 8080, в dev одна реплика.
 
-Argo CD Application, image digest и закреплённые revisions chart/values находятся
-в `sellgar.infrastructure/environments/dev/services/identity-service/`.
+PR запускает build/test без публикации и деплоя. Push в `release/*` публикует
+кандидат с `release.json`; ручной production workflow из `master` принимает
+`candidate-<run-number>.<attempt>`, проверяет успешный исходный CI и идентичность
+дерева, продвигает те же digest без пересборки. Production ещё не подготовлен:
+нужны его values, Secrets, runner и GitHub environment protections.
+Откат миграций в эту схему не включён.
+
+Общие workflows закреплены тегом `delivery-v0.6.0` в `sellgar.infrastructure`.
+Порядок установки runner и передачи управления: [доставка приложений](https://github.com/pyatakovvg/sellgar.infrastructure/blob/development/docs/application-delivery.md).
 
 ## Session context посетителя
 
